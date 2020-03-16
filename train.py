@@ -5,9 +5,11 @@ from torch.utils.data import Dataset, DataLoader
 #from torchvision import transforms
 #import torchvision
 import os 
+import argparse
 import numpy as np
 import cv2
 from matplotlib import pyplot as plt
+#from skimage.measure import structural_similarity as ssim
 
 from model import Compressor
 
@@ -39,6 +41,7 @@ class ImageData(Dataset):
     
     def normalization(self, data):
         data = (data/255.0).astype(np.float32)
+        #data = data.astype(np.float32)
         return data
 
 class TestData(Dataset):
@@ -67,16 +70,45 @@ class TestData(Dataset):
     
     def normalization(self, data):
         data = (data/255.0).astype(np.float32)
+        #data = data.astype(np.float32)
         return data
 
-def train():
+def denormalization(img):
+    '''
+    img:    4-d numpy array
+    '''
+    img[img>1.0] = 1.0
+    #img[img<0] = 0.001
+    img = (img*255.0).astype(np.uint8)
+    #img[img>255.0] = 255.0
+    #img = img.astype(np.uint8)
+    img = img.transpose(0, 2, 3, 1)
+    img = np.squeeze(img, axis=0)
+    return img
+
+
+
+def train(pre_train):
     model = Compressor()
+    if pre_train is not '':
+        print('loading pre-train model ......')
+        model.load_state_dict(torch.load(save_dir+'/'+pre_train))
+        print('pre-trained model loaded')
+
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print('using ', device)
     model = model.to(device)
     criterion = nn.MSELoss()
-    optimizer = optim.SGD(model.parameters(), lr = lr, momentum=0.9)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=lr_step, gamma=0.1)
+    #optimizer = optim.SGD(model.parameters(), lr = lr, momentum=0.9)
+    if pre_train is not '':
+        print('fine tune model with Adam ......')
+        optimizer = optim.Adam(model.parameters(), lr = 0.001)
+        num_epoch = 300
+    else:
+        optimizer = optim.Adadelta(model.parameters())
+        # optimizer = optim.SGD(model.parameters(), lr = lr, weight_decay=0.9, momentum=0.9)
+        # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=lr_step, gamma=0.1)
+        num_epoch = 100
 
     train_dataset = ImageData(train_dir)
     train_loader = DataLoader(dataset = train_dataset,
@@ -84,7 +116,7 @@ def train():
                         shuffle = True,
                         num_workers = 4)
     
-
+    #import ipdb; ipdb.set_trace()
     for epoch in range(num_epoch):
         running_loss = 0.0
         for i, img in enumerate(train_loader):
@@ -128,6 +160,7 @@ def evaluation(showcase_id=100):
             rec_img = model(img)
             rec_img = denormalization(rec_img.numpy())
             img_hwc = img.numpy().squeeze(0).transpose(1,2,0)
+            img_hwc = (img_hwc*255.0).astype(np.uint8)
             total_ssim += SSIM(rec_img, img_hwc)
     avg_ssim = total_ssim/num_testdata
     print('avg ssim on test dataset: ', avg_ssim)
@@ -140,15 +173,19 @@ def evaluation(showcase_id=100):
 
 
 def show_case(model, test_id):
-    imgdata = ImageData(test_dir)
-    img = imgdata[test_id]
+    # imgdata = ImageData(train_dir)
+    # img = imgdata[test_id-100]
+    imgdata = TestData(test_dir)
+    img = imgdata[test_id-100]
     img_4d = img.unsqueeze(0)
     rec_img = model(img_4d)
     rec_img = rec_img.detach().numpy()
     rec_img = denormalization(rec_img)
     img_hwc = img.numpy().transpose(1,2,0)
+    img_hwc = (img_hwc*255.0).astype(np.uint8)
     
-    ssim = SSIM(rec_img, img_hwc)
+    #import ipdb; ipdb.set_trace()
+    ssim = SSIM(img_hwc, rec_img)
     print('showcase ssim: ', ssim)
 
     plt.figure()
@@ -168,6 +205,8 @@ def SSIM(img1, img2):
     img1, img2: [0, 255]
     img.ndim=[h,w,c]
     '''
+    #return ssim(img1, img2)
+
     def ssim(img1, img2):
         C1 = (0.01 * 255)**2
         C2 = (0.03 * 255)**2
@@ -204,19 +243,14 @@ def SSIM(img1, img2):
         raise ValueError('Wrong input image dimensions.')
 
 
-def denormalization(img):
-    '''
-    img:    4-d numpy array
-    '''
-    img[img>1.0] = 1.0
-    img = (img*255.0).astype(np.uint8)
-    img = img.transpose(0, 2, 3, 1)
-    img = np.squeeze(img, axis=0)
-    return img
-
-
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--finetune', '-f', default='')
+    parser.add_argument('--test', '-t', action='store_true', default=False)
+    parser.add_argument('--showcase_id', '-i', default=100)
+    args = parser.parse_args()
+
     lr = 0.01
     lr_step = 10
     num_epoch = 100
@@ -229,13 +263,9 @@ if __name__ == '__main__':
     test_dir = './test'
     save_dir = './model'
 
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--test', '-t', action='store_true', default=False)
-    parser.add_argument('--showcase_id', '-i', default=100)
-    args = parser.parse_args()
+    
     if not args.test:
-        train()
+        train(args.finetune)
     else:
         showcase_id = int(args.showcase_id)
         evaluation(showcase_id)

@@ -42,6 +42,7 @@ class DeCoder(nn.Module):
         # self.inv_conv3 = nn.ConvTranspose2d(16, 32, (1,1), stride=3, padding=0)
         self.inv_conv2 = nn.ConvTranspose2d(32, 64, (5,5), stride=1, padding=2)
         self.inv_pool1 = lambda x: F.interpolate(x, scale_factor=2.0, mode='bilinear', align_corners=True)
+        # self.inv_conv2 = nn.ConvTranspose2d(32, 64, (5,5), stride=2, padding=2)
         self.inv_conv1 = nn.ConvTranspose2d(64, 3, (7,7), stride=1, padding=3)
 
     def forward(self, input):
@@ -65,7 +66,7 @@ class Compressor(nn.Module):
     # def forward(self, input):
     #     out_en = self.encoder(input)
     #     out_de = self.decoder(out_en)
-    #     return out_en, out_de
+    #     return out_de
 
     def __init__(self):
         super().__init__()
@@ -123,5 +124,5 @@ if __name__ == '__main__':
     print('shape of out_encoder: {}'.format(str(out_encoder.shape)))
     
     compressor = Compressor()
-    _, out_comp = compressor(input_encoder)
+    out_comp = compressor(input_encoder)
     print('shape of out_comp: {}'.format(str(out_comp.shape)))  
